@@ -1,0 +1,29 @@
+{
+  "category:modules": [
+    {
+      "id": "jeremy",
+      "name": "Jeremy",
+      "pkg": "com.8spine.module.jeremy",
+      "file": "jeremy.js",
+      "download": "https://raw.githubusercontent.com/bacard1i/emperor-of-sand/main/jeremy.js",
+      "version": "2.5",
+      "author": "bacardii",
+      "description": "Qobuz Primary + Tidal Fallback | Smart Quality Selection | Aggressive Preloading | Albums, Artists & Playlists",
+      "tags": ["QOBUZ", "TIDAL", "HI-RES", "SMART", "PRELOAD", "ALBUMS", "ARTISTS"],
+      "featured": true,
+      "trusted": true,
+      "nsfw": false,
+      "size": 18500,
+      "lang": "all",
+      "folder": "modules",
+      "sources": [
+        {
+          "name": "Jeremy",
+          "lang": "all",
+          "id": "jeremy",
+          "baseUrl": "."
+        }
+      ]
+    }
+  ]
+}

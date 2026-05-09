@@ -123,7 +123,7 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   var seenISRC = new Set();
   var seenKey = new Set();
 
-  // 1. Add all Qobuz tracks first (we prefer Qobuz for quality)
+  // Add Qobuz tracks first
   qobuzTracks.forEach(function(t) {
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if (!seenKey.has(key)) {
@@ -133,21 +133,13 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
     }
   });
 
-  // 2. Add Tidal tracks more permissively
+  // Add Tidal tracks more permissively
   tidalTracks.forEach(function(t) {
-    // Only skip if it has the exact same ISRC as a Qobuz track
-    if (t.isrc && seenISRC.has(t.isrc)) {
-      return;
-    }
+    if (t.isrc && seenISRC.has(t.isrc)) return;           // Skip only if exact same ISRC
 
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
+    if (seenKey.has(key)) return;
 
-    // Skip only if we already have a track with the exact same key
-    if (seenKey.has(key)) {
-      return;
-    }
-
-    // Allow the Tidal track
     seenKey.add(key);
     if (t.isrc) seenISRC.add(t.isrc);
     final.push(t);
@@ -190,7 +182,7 @@ return {
   },
 
   getTrackStreamUrl: async function(trackId) {
-  // If the ID starts with "tidal:", it's a Tidal track
+  // Check if it's a Tidal track (prefixed with "tidal:")
   if (typeof trackId === "string" && trackId.indexOf("tidal:") === 0) {
     var realId = trackId.replace("tidal:", "");
     return await getTidalStream(realId);

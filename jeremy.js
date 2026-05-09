@@ -1,11 +1,3 @@
-var Jeremy = {
-  id: "jeremy",
-  name: "Jeremy",
-  version: "2.5",
-  author: "bacardii",
-  description: "Qobuz Primary + Tidal Fallback | Smart Quality | Aggressive Preload | Albums, Artists & Playlists",
-
-  // ==================== CONFIG ====================
   APP_ID: "312369995",
   USER_AUTH_TOKEN: "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g",
   APP_SECRET: "e79f8b9be485692b0e5f9dd895826368",

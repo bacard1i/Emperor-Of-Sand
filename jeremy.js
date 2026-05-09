@@ -115,27 +115,41 @@ var getTidalStream = async function(trackId){
   }catch(e){ return { streamUrl: null }; }
 };
 
-function mergeSmart(qobuzTracks, tidalTracks, limit){
+// ==================== IMPROVED mergeSmart (v3.7) ====================
+// More permissive: Shows more Tidal tracks (like Molecule Mouth) while avoiding obvious duplicates
+
+function mergeSmart(qobuzTracks, tidalTracks, limit) {
   var final = [];
   var seenISRC = new Set();
   var seenKey = new Set();
 
-  qobuzTracks.forEach(function(t){
+  // 1. Add all Qobuz tracks first (we prefer Qobuz for quality)
+  qobuzTracks.forEach(function(t) {
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
-    if(!seenKey.has(key)){
+    if (!seenKey.has(key)) {
       seenKey.add(key);
-      if(t.isrc) seenISRC.add(t.isrc);
+      if (t.isrc) seenISRC.add(t.isrc);
       final.push(t);
     }
   });
 
-  tidalTracks.forEach(function(t){
-    if(t.isrc && seenISRC.has(t.isrc)) return;
-    var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
-    if(seenKey.has(key)) return;
+  // 2. Add Tidal tracks more permissively
+  tidalTracks.forEach(function(t) {
+    // Only skip if it has the exact same ISRC as a Qobuz track
+    if (t.isrc && seenISRC.has(t.isrc)) {
+      return;
+    }
 
+    var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
+
+    // Skip only if we already have a track with the exact same key
+    if (seenKey.has(key)) {
+      return;
+    }
+
+    // Allow the Tidal track
     seenKey.add(key);
-    if(t.isrc) seenISRC.add(t.isrc);
+    if (t.isrc) seenISRC.add(t.isrc);
     final.push(t);
   });
 

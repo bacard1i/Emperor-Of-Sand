@@ -175,10 +175,17 @@ return {
     return { tracks: merged, total: merged.length };
   },
 
-  getTrackStreamUrl: async function(trackId){
-    try { return await getQobuzStream(trackId); }
-    catch(e) { return await getTidalStream(trackId); }
-  },
+  getTrackStreamUrl: async function(trackId) {
+  // If the ID starts with "tidal:", it's a Tidal track
+  if (typeof trackId === "string" && trackId.indexOf("tidal:") === 0) {
+    var realId = trackId.replace("tidal:", "");
+    return await getTidalStream(realId);
+  } 
+  // Otherwise it's a Qobuz track
+  else {
+    return await getQobuzStream(trackId);
+  }
+},
 
   getAlbum: getAlbum,
   preloadTrack: preloadTrack

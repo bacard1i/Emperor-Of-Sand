@@ -2,7 +2,7 @@ var APP_ID = "312369995";
 var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g";
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
-var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
+var TIDAL_BACKEND = "https://sultans-curse.onrender.com"
 
   // ==================== CACHING ====================
   cache: new Map(),

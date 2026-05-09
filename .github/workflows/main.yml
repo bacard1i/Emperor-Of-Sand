@@ -1,0 +1,15 @@
+name: Keep Render Alive
+
+on:
+  schedule:
+    - cron: "*/3 * * * *"   # Every 3 minutes
+  workflow_dispatch:        # Allows manual trigger
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Backend
+        run: |
+          curl -s -o /dev/null -w "%{http_code}\n" \
+          https://sultans-curse.onrender.com/ || true

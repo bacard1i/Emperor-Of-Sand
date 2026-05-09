@@ -4,7 +4,7 @@ var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
 
-var TIMEOUT_MS = 12000;
+var TIMEOUT_MS = 15000;
 var _streamCache = new Map();
 var STREAM_CACHE_TTL = 5 * 60 * 1000;
 var _searchCache = new Map();
@@ -22,7 +22,7 @@ function getFullTitle(item) {
   return (ver && base.toLowerCase().indexOf(ver.toLowerCase()) === -1) ? base + " " + ver : base;
 }
 
-function md5(str){ /* keep the same full MD5 function from v3.2 */ return temp.toLowerCase(); }
+function md5(str){ /* keep same full MD5 function */ return temp.toLowerCase(); }
 
 async function withTimeout(promise, ms){ return Promise.race([promise, new Promise((_,r)=>setTimeout(()=>r(new Error("timeout")),ms))]); }
 
@@ -77,14 +77,17 @@ var getQobuzStream = async function(trackId, retry){
 };
 
 var searchTidal = async function(query, limit){
-  if(!limit) limit=25; // increased
+  if(!limit) limit=25;
   try{
     var res = await withTimeout(fetch(TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit), TIMEOUT_MS);
     var data = await res.json();
     return (data.tracks || []).map(function(t){
       return Object.assign({}, t, { source: "Tidal", tidalId: t.id, audioQuality: t.audioQuality || "LOSSLESS" });
     });
-  }catch(e){ return []; }
+  }catch(e){ 
+    console.log("[Jeremy] Tidal search error:", e.message);
+    return []; 
+  }
 };
 
 var getTidalStream = async function(trackId){
@@ -94,13 +97,11 @@ var getTidalStream = async function(trackId){
   }catch(e){ return { streamUrl: null }; }
 };
 
-// ==================== v3.3 - Much more permissive merge ====================
 function mergeSmart(qobuzTracks, tidalTracks, limit){
   var final = [];
   var seenISRC = new Set();
   var seenKey = new Set();
 
-  // Qobuz first (priority)
   qobuzTracks.forEach(function(t){
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if(!seenKey.has(key)){
@@ -110,10 +111,8 @@ function mergeSmart(qobuzTracks, tidalTracks, limit){
     }
   });
 
-  // Tidal: only skip if exact same ISRC
   tidalTracks.forEach(function(t){
-    if(t.isrc && seenISRC.has(t.isrc)) return;   // only exact ISRC match = duplicate
-
+    if(t.isrc && seenISRC.has(t.isrc)) return;
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if(seenKey.has(key)) return;
 
@@ -139,8 +138,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "3.3",
-  description: "Qobuz Hi-Res + Tidal Fallback • Better Tidal visibility (Molecule Mouth etc)",
+  version: "3.5",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

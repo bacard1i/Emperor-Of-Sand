@@ -95,8 +95,13 @@ var searchTidal = async function(query, limit){
     var res = await withTimeout(fetch(TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit), TIMEOUT_MS);
     var data = await res.json();
     return (data.tracks || []).map(function(t){
-      return Object.assign({}, t, { source: "Tidal", tidalId: t.id, audioQuality: t.audioQuality || "LOSSLESS" });
-    });
+  return Object.assign({}, t, { 
+    id: "tidal:" + t.id,                    // ← Added prefix
+    source: "Tidal", 
+    tidalId: t.id, 
+    audioQuality: t.audioQuality || "LOSSLESS" 
+  });
+});
   }catch(e){ 
     console.log("[Jeremy] Tidal search error:", e.message);
     return []; 

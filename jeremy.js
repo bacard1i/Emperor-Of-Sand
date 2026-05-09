@@ -1,8 +1,3 @@
-// =============================================
-// JEREMY v2.5 - Full Featured
-// Qobuz Primary + Tidal Fallback
-// =============================================
-
 var APP_ID = "312369995";
 var USER_AUTH_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g";
 var APP_SECRET = "e79f8b9be485692b0e5f9dd895826368";

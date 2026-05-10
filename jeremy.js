@@ -4,7 +4,7 @@ var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
 
-var TIMEOUT_MS = 15000;
+var TIMEOUT_MS = 20000;
 var _streamCache = new Map();
 var STREAM_CACHE_TTL = 5 * 60 * 1000;
 var _searchCache = new Map();
@@ -89,22 +89,35 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-var searchTidal = async function(query, limit){
-  if(!limit) limit=25;
-  try{
-    var res = await withTimeout(fetch(TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit), TIMEOUT_MS);
+var searchTidal = async function(query, limit) {
+  if (!limit) limit = 25;
+
+  try {
+    var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
+    console.log("[Jeremy] Calling Tidal:", url);
+
+    var res = await withTimeout(fetch(url), TIMEOUT_MS);
     var data = await res.json();
-    return (data.tracks || []).map(function(t){
-  return Object.assign({}, t, { 
-    id: "tidal:" + t.id,                    // ← Added prefix
-    source: "Tidal", 
-    tidalId: t.id, 
-    audioQuality: t.audioQuality || "LOSSLESS" 
-  });
-});
-  }catch(e){ 
-    console.log("[Jeremy] Tidal search error:", e.message);
-    return []; 
+
+    console.log("[Jeremy] Tidal returned", (data.tracks || []).length, "tracks");
+
+    if (!data.tracks || data.tracks.length === 0) {
+      console.log("[Jeremy] No Tidal tracks found for:", query);
+      return [];
+    }
+
+    return data.tracks.map(function(t) {
+      return Object.assign({}, t, {
+        id: "tidal:" + t.id,
+        source: "Tidal",
+        tidalId: t.id,
+        audioQuality: t.audioQuality || "LOSSLESS"
+      });
+    });
+
+  } catch (e) {
+    console.log("[Jeremy] Tidal search FAILED:", e.message);
+    return [];
   }
 };
 
@@ -134,8 +147,13 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   });
 
   // Add Tidal tracks more permissively
-  tidalTracks.forEach(function(t) {
-    if (t.isrc && seenISRC.has(t.isrc)) return;           // Skip only if exact same ISRC
+tidalTracks.forEach(function(t) {
+  if (t.isrc && seenISRC.has(t.isrc)) {
+    console.log("[Jeremy] Skipping Tidal (same ISRC):", t.title);
+    return;
+  }
+  ...
+});
 
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if (seenKey.has(key)) return;
@@ -172,10 +190,13 @@ return {
     var cached = _searchCache.get(cacheKey);
     if(cached && Date.now()-cached.ts < SEARCH_CACHE_TTL) return { tracks: cached.data, total: cached.data.length };
 
-    var [qobuz, tidal] = await Promise.all([
-      searchQobuz(query, limit),
-      searchTidal(query, limit)
-    ]);
+var [qobuz, tidal] = await Promise.all([
+  searchQobuz(query, limit),
+  searchTidal(query, limit)
+]);
+
+console.log("[Jeremy] Qobuz results:", qobuz.length);
+console.log("[Jeremy] Tidal results:", tidal.length);
     var merged = mergeSmart(qobuz, tidal, limit);
     _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
     return { tracks: merged, total: merged.length };

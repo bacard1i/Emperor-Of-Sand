@@ -6,7 +6,7 @@
       "pkg": "com.8spine.module.jeremy",
       "file": "jeremy.js",
       "download": "https://raw.githubusercontent.com/bacard1i/emperor-of-sand/main/jeremy.js",
-      "version": "3.7",
+      "version": "2.0",
       "author": "bacardii",
       "description": "Qobuz Hi-Res + Tidal Fallback • Best Quality Available",
       "tags": ["QOBUZ", "TIDAL", "HI-RES", "SMART", "ALBUMS"],

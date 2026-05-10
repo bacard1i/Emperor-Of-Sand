@@ -184,6 +184,14 @@ return {
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
+
+    // Diagnostic mode: Only use Tidal when searching 'molecule mouth'
+    if (query.toLowerCase().includes("molecule mouth")) {
+      console.log("[DIAGNOSTIC] Using only Tidal for: molecule mouth");
+      var tidalOnly = await searchTidal(query, limit);
+      return { tracks: tidalOnly, total: tidalOnly.length };
+    }
+
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);
     if(cached && Date.now()-cached.ts < SEARCH_CACHE_TTL) return { tracks: cached.data, total: cached.data.length };

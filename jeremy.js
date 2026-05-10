@@ -94,15 +94,15 @@ var searchTidal = async function(query, limit) {
 
   try {
     var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
-    console.log("[Jeremy] Calling Tidal:", url);
+    console.log("[Jeremy - Tidal] API URL:", url);
 
     var res = await withTimeout(fetch(url), TIMEOUT_MS);
     var data = await res.json();
 
-    console.log("[Jeremy] Tidal returned", (data.tracks || []).length, "tracks");
+    console.log("[Jeremy - Tidal] Tracks found:", (data.tracks || []).length);
 
     if (!data.tracks || data.tracks.length === 0) {
-      console.log("[Jeremy] No Tidal tracks found for:", query);
+      console.log("[Jeremy - Tidal] No results for query:", query);
       return [];
     }
 
@@ -116,7 +116,7 @@ var searchTidal = async function(query, limit) {
     });
 
   } catch (e) {
-    console.log("[Jeremy] Tidal search FAILED:", e.message);
+    console.error("[Jeremy - Tidal] Search FAILED:", e.message);
     return [];
   }
 };

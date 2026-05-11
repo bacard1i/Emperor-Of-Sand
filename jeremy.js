@@ -95,19 +95,50 @@ var getQobuzStream = async function(trackId, retry){
   if(cached && Date.now()-cached.ts < STREAM_CACHE_TTL) return cached.result;
   try{
     var ts = Math.floor(Date.now()/1000);
-    var sig = md5("trackgetFileUrlformat_id27intentstreamtrack_id"+trackId+ts+SECRET);
-    var url = BASE + "/track/getFileUrl?app_id="+APP_ID+"&user_auth_token="+USER_TOKEN+
-              "&track_id="+trackId+"&format_id=27&intent=stream&request_ts="+ts+"&request_sig="+sig;
-    var r = await fetch(url); if(!r.ok) throw new Error("HTTP "+r.status);
+    
+    // Better signature (2026 format)
+    var sig = md5(
+      "trackgetFileUrl" +
+      "app_id" + APP_ID +
+      "format_id27" +
+      "intentstream" +
+      "request_ts" + ts +
+      "track_id" + trackId +
+      SECRET
+    );
+
+    var url = BASE + "/track/getFileUrl" +
+              "?app_id=" + APP_ID +
+              "&user_auth_token=" + USER_TOKEN +
+              "&track_id=" + trackId +
+              "&format_id=27" +
+              "&intent=stream" +
+              "&request_ts=" + ts +
+              "&request_sig=" + sig;
+
+    var r = await fetch(url);
+    if(!r.ok) throw new Error("HTTP " + r.status);
+
     var data = await r.json();
-    if (!data.url) throw new Error("No URL in response");
-    var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz (Q)", source: "Qobuz" } };
+    
+    if (!data.url) throw new Error("No stream URL returned");
+
+    var result = { 
+      streamUrl: data.url, 
+      track: { 
+        audioQuality: (data.bit_depth||24) + "-bit / " + (data.sample_rate||data.sampling_rate||0) + " kHz (Q)", 
+        source: "Qobuz" 
+      } 
+    };
     _streamCache.set(cacheKey, {result:result, ts:Date.now()});
     return result;
-  }catch(e){ if(retry<1) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed: " + e.message); }
+  }catch(e){ 
+    if(retry<1) return getQobuzStream(trackId, retry+1); 
+    throw new Error("Qobuz stream failed: " + e.message); 
+  }
 };
 
-// ==================== v2.7.5 - SIMPLE & RELIABLE ====================
+// ==================== v2.7.6 - IMPROVED DIRECT QOBUZ ====================
 
 function isPreviewUrl(url) {
   if (!url) return true;
@@ -115,24 +146,22 @@ function isPreviewUrl(url) {
 }
 
 async function getBestStream(track) {
-  // Try Qobuz first (what you're seeing in search)
   if (track.qobuzId) {
     try {
       var q = await getQobuzStream(track.qobuzId, 0);
       if (q && q.streamUrl && !isPreviewUrl(q.streamUrl)) {
         return q;
       }
-    } catch (e) { console.log("[Jeremy] Qobuz failed:", e.message); }
+    } catch (e) { console.log("[Jeremy] Qobuz error:", e.message); }
   }
 
-  // Try Tidal as fallback
   if (track.tidalId) {
     try {
       var t = await getTidalStream(track.tidalId);
       if (t && t.streamUrl && !isPreviewUrl(t.streamUrl)) {
         return t;
       }
-    } catch (e) { console.log("[Jeremy] Tidal failed:", e.message); }
+    } catch (e) { console.log("[Jeremy] Tidal error:", e.message); }
   }
 
   return { streamUrl: null, error: true };
@@ -249,8 +278,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.5",
-  description: "Qobuz Hi-Res + Tidal Fallback • Simple & Reliable (v2.7.5)",
+  version: "2.7.6",
+  description: "Qobuz Hi-Res + Tidal Fallback • Improved Direct Qobuz (v2.7.6)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

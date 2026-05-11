@@ -131,7 +131,7 @@ var searchTidal = async function(query, limit, retry) {
 
 var getTidalStream = async function(trackId, retry){
   if (!retry) retry = 0;
-  var qualities = ["LOSSLESS", "HIGH", "LOW"];
+  var qualities = ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"];
   var quality = qualities[retry] || "LOSSLESS";
 
   try {
@@ -141,11 +141,11 @@ var getTidalStream = async function(trackId, retry){
     if (data.streamUrl || data.url) {
       return data;
     } else {
-      if (retry < 2) return getTidalStream(trackId, retry + 1);
-      return { streamUrl: null, error: "No stream available" };
+      if (retry < 3) return getTidalStream(trackId, retry + 1);
+      return { streamUrl: null, error: "No full stream available" };
     }
   } catch (e) {
-    if (retry < 2) return getTidalStream(trackId, retry + 1);
+    if (retry < 3) return getTidalStream(trackId, retry + 1);
     return { streamUrl: null, error: e.message };
   }
 };
@@ -190,8 +190,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.7 - Better Tidal playback)",
+  version: "2.8",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.8 - Full track attempt)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

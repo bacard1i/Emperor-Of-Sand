@@ -57,11 +57,11 @@ var searchQobuz = async function(query, limit){
       var sr = t.maximum_sampling_rate || t.sampling_rate || 0;
       var bit = t.maximum_bit_depth || t.bit_depth || 16;
       return {
-        id: String(t.id), title: cleanText(getFullTitle(t)) + " (Qobuz)",
+        id: String(t.id), title: cleanText(getFullTitle(t)),
         artist: t.performer ? t.performer.name : (t.artist ? t.artist.name : "Unknown"),
         album: t.album ? t.album.title : "", albumId: t.album ? String(t.album.id) : null,
         duration: t.duration || 0,
-        audioQuality: bit + "-bit / " + sr + " kHz",
+        audioQuality: bit + "-bit / " + sr + " kHz (Q)",
         cover: t.album && t.album.image ? t.album.image.large : "",
         isrc: t.isrc || null, source: "Qobuz", qobuzId: String(t.id)
       };
@@ -83,7 +83,7 @@ var getQobuzStream = async function(trackId, retry){
               "&track_id="+trackId+"&format_id=27&intent=stream&request_ts="+ts+"&request_sig="+sig;
     var r = await fetch(url); if(!r.ok) throw new Error("HTTP "+r.status);
     var data = await r.json();
-    var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz", source: "Qobuz" } };
+    var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz (Q)", source: "Qobuz" } };
     _streamCache.set(cacheKey, {result:result, ts:Date.now()});
     return result;
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
@@ -118,8 +118,8 @@ var searchTidal = async function(query, limit, retry) {
         id: "tidal:" + tid,
         source: "Tidal",
         tidalId: tid,
-        audioQuality: t.audioQuality || t.audio_quality || t.quality || "LOSSLESS",
-        title: cleanText(getFullTitle(t) || t.title || "") + " (Tidal)"
+        audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
+        title: cleanText(getFullTitle(t) || t.title || "")
       });
     });
 
@@ -176,8 +176,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.6.1",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.1 - Working search + labels)",
+  version: "2.6.2",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.2 - Labels in Quality field)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

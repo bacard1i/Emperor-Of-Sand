@@ -135,8 +135,21 @@ var getTidalStream = async function(trackId) {
     try {
       var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
       var data = await res.json();
+
+      if (data.manifest) {
+        try {
+          var decoded = atob(data.manifest);
+          var manifest = JSON.parse(decoded);
+          if (manifest.urls && manifest.urls.length > 0) {
+            return { streamUrl: manifest.urls[0] };
+          }
+        } catch (e) {
+          // manifest decode failed, try fallback
+        }
+      }
+
       if (data.streamUrl || data.url) {
-        return { streamUrl: data.streamUrl || data.url || null };
+        return { streamUrl: data.streamUrl || data.url };
       }
     } catch (e) {
       continue;
@@ -185,8 +198,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.0",
-  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality Start (v2.7.0 - Full Acceleration)",
+  version: "2.7.1",
+  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal Playback (v2.7.1)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

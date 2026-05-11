@@ -129,12 +129,20 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-var getTidalStream = async function(trackId){
-  try{
-    var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=LOSSLESS"), TIMEOUT_MS);
-    var data = await res.json();
-    return { streamUrl: data.streamUrl || data.url || null };
-  }catch(e){ return { streamUrl: null }; }
+var getTidalStream = async function(trackId) {
+  const qualities = ["LOSSLESS", "HIGH", "LOW"];
+  for (const quality of qualities) {
+    try {
+      var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
+      var data = await res.json();
+      if (data.streamUrl || data.url) {
+        return { streamUrl: data.streamUrl || data.url || null };
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  return { streamUrl: null };
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
@@ -177,8 +185,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.6.3",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.3 - Improved Tidal playback)",
+  version: "2.6.4",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.4 - Better Tidal playback)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

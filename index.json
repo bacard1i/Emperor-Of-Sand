@@ -1,9 +1,9 @@
 {
   "category:modules": [
     {
-      "id": "jeremy",
-      "name": "Jeremy",
-      "pkg": "com.8spine.module.jeremy",
+      "id": "jeremy2",
+      "name": "Jeremy 2",
+      "pkg": "com.8spine.module.jeremy2",
       "file": "jeremy.js",
       "download": "https://raw.githubusercontent.com/bacard1i/emperor-of-sand/main/jeremy.js",
       "version": "2.7.2",
@@ -20,9 +20,9 @@
       "folder": "modules",
       "sources": [
         {
-          "name": "Jeremy",
+          "name": "Jeremy 2",
           "lang": "all",
-          "id": "jeremy",
+          "id": "jeremy2",
           "baseUrl": "."
         }
       ]

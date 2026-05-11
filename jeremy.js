@@ -4,6 +4,33 @@ var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
 
+// Cerberus-style multi-endpoint racing for Tidal
+var TIDAL_ENDPOINTS = [
+  "https://tidal.squid.wtf",
+  "https://triton.squid.wtf",
+  "https://tidal.kinoplus.online",
+  "https://wolf.qqdl.site",
+  "https://maus.qqdl.site",
+  "https://vogel.qqdl.site",
+  "https://katze.qqdl.site",
+  "https://hund.qqdl.site",
+  "https://tidal-api.binimum.org",
+  "https://aether.squid.wtf",
+  "https://zeus.squid.wtf",
+  "https://kraken.squid.wtf",
+  "https://phoenix.squid.wtf",
+  "https://shiva.squid.wtf",
+  "https://chaos.squid.wtf",
+  "https://hifi-one.spotisaver.net",
+  "https://hifi-two.spotisaver.net",
+  "https://monochrome.samidy.com",
+  "https://monochrome-api.samidy.com",
+  "https://music.binimum.org",
+  "https://tidal.qqdl.site",
+  "https://music.arjix.dev",
+  "https://spo.free.nf"
+];
+
 var TIMEOUT_MS = 8000;
 var _streamCache = new Map();
 var STREAM_CACHE_TTL = 12 * 60 * 1000;
@@ -89,40 +116,57 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
+// Cerberus-style Tidal multi-endpoint racing
+async function fetchWithRace(endpoint) {
+  const tried = new Set();
+  while (tried.size < TIDAL_ENDPOINTS.length) {
+    const available = TIDAL_ENDPOINTS.filter(e => !tried.has(e));
+    const batchSize = Math.min(3, available.length);
+    if (batchSize === 0) break;
+    const batch = available.sort(() => Math.random() - 0.5).slice(0, batchSize);
+    batch.forEach(e => tried.add(e));
+    try {
+      const result = await Promise.any(
+        batch.map(baseUrl =>
+          fetch(baseUrl + endpoint, { headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' } })
+            .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
+        )
+      );
+      return result;
+    } catch (e) {
+      continue;
+    }
+  }
+  throw new Error('All Tidal endpoints failed');
+}
+
+function extractStreamUrl(manifest) {
+  if (!manifest) return null;
+  try {
+    const decoded = atob(manifest);
+    const parsed = JSON.parse(decoded);
+    if (parsed.urls && Array.isArray(parsed.urls) && parsed.urls.length > 0) {
+      return parsed.urls[0];
+    }
+  } catch (error) {}
+  return null;
+}
+
 var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
   if (retry === undefined) retry = 0;
-
   try {
-    var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
-    var res = await withTimeout(fetch(url), TIMEOUT_MS);
-    var raw = await res.json();
-
-    var payload = raw.data || raw;
-    var tidalTracks = [];
-    if (payload.tracks) {
-      tidalTracks = Array.isArray(payload.tracks) ? payload.tracks : (payload.tracks.items || []);
-    } else if (payload.items) {
-      tidalTracks = payload.items;
-    } else if (payload.data && payload.data.tracks) {
-      tidalTracks = Array.isArray(payload.data.tracks) ? payload.data.tracks : (payload.data.tracks.items || []);
-    }
-
-    if (!tidalTracks || tidalTracks.length === 0) {
-      return [];
-    }
-
-    return tidalTracks.map(function(t) {
-      var tid = t.id || t.trackId || "";
-      return Object.assign({}, t, {
-        id: "tidal:" + tid,
+    const data = await fetchWithRace('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
+    const items = data.data?.items || [];
+    return items.map(function(t) {
+      return {
+        id: "tidal:" + t.id,
         source: "Tidal",
-        tidalId: tid,
+        tidalId: t.id,
         audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
         title: cleanText(getFullTitle(t) || t.title || "")
-      });
+      };
     });
-
   } catch (e) {
     if (retry < 1) return searchTidal(query, limit, retry + 1);
     return [];
@@ -133,21 +177,12 @@ var getTidalStream = async function(trackId) {
   const qualities = ["LOSSLESS", "HIGH", "LOW"];
   for (const quality of qualities) {
     try {
-      var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
-      var data = await res.json();
-
-      if (data.manifest) {
-        try {
-          var decoded = atob(data.manifest);
-          var manifest = JSON.parse(decoded);
-          if (manifest.urls && manifest.urls.length > 0) {
-            return { streamUrl: manifest.urls[0] };
-          }
-        } catch (e) {}
-      }
-
-      if (data.streamUrl || data.url) {
-        return { streamUrl: data.streamUrl || data.url };
+      const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
+      if (data.data && data.data.manifest) {
+        const streamUrl = extractStreamUrl(data.data.manifest);
+        if (streamUrl) {
+          return { streamUrl: streamUrl };
+        }
       }
     } catch (e) {
       continue;
@@ -160,7 +195,6 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   var final = [];
   var seenISRC = new Set();
   var seenKey = new Set();
-
   qobuzTracks.forEach(function(t) {
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if (!seenKey.has(key)) {
@@ -169,7 +203,6 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
       final.push(t);
     }
   });
-
   tidalTracks.forEach(function(t) {
     if (t.isrc && seenISRC.has(t.isrc)) return;
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
@@ -178,16 +211,25 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
     if (t.isrc) seenISRC.add(t.isrc);
     final.push(t);
   });
-
   return final.slice(0, limit);
 }
+
+var getAlbum = async function(albumId){ return null; };
+
+var preloadQueue = [];
+var preloadTrack = function(trackId){
+  getQobuzStream(trackId).catch(function(){});
+  if(preloadQueue.indexOf(trackId) === -1) preloadQueue.unshift(trackId);
+  if(preloadQueue.length > 25) preloadQueue.length = 25;
+  return Promise.resolve({ status: "preloaded" });
+};
 
 return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.0",
-  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality (v2.7.0)",
+  version: "2.7.2",
+  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.2)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
@@ -228,6 +270,6 @@ return {
     }
   },
 
-  getAlbum: async function(albumId){ return null; },
-  preloadTrack: async function(trackId){ return { status: "ok" }; }
+  getAlbum: getAlbum,
+  preloadTrack: preloadTrack
 };

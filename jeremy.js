@@ -89,34 +89,52 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-var searchTidal = async function(query, limit) {
+var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
+  if (retry === undefined) retry = 0;
 
   try {
     var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
     console.log("[Jeremy - Tidal] API URL:", url);
 
     var res = await withTimeout(fetch(url), TIMEOUT_MS);
-    var data = await res.json();
+    var raw = await res.json();
 
-    console.log("[Jeremy - Tidal] Tracks found:", (data.tracks || []).length);
+    // Unwrap backend wrapper: {version, data: tidal_payload}
+    var payload = raw.data || raw;
 
-    if (!data.tracks || data.tracks.length === 0) {
+    var tidalTracks = [];
+    if (payload.tracks) {
+      tidalTracks = Array.isArray(payload.tracks) ? payload.tracks : (payload.tracks.items || []);
+    } else if (payload.items) {
+      tidalTracks = payload.items;
+    } else if (payload.data && payload.data.tracks) {
+      tidalTracks = Array.isArray(payload.data.tracks) ? payload.data.tracks : (payload.data.tracks.items || []);
+    }
+
+    console.log("[Jeremy - Tidal] Tracks found:", tidalTracks.length);
+
+    if (!tidalTracks || tidalTracks.length === 0) {
       console.log("[Jeremy - Tidal] No results for query:", query);
       return [];
     }
 
-    return data.tracks.map(function(t) {
+    return tidalTracks.map(function(t) {
+      var tid = t.id || t.trackId || "";
       return Object.assign({}, t, {
-        id: "tidal:" + t.id,
+        id: "tidal:" + tid,
         source: "Tidal",
-        tidalId: t.id,
-        audioQuality: t.audioQuality || "LOSSLESS"
+        tidalId: tid,
+        audioQuality: t.audioQuality || t.audio_quality || t.quality || "LOSSLESS"
       });
     });
 
   } catch (e) {
     console.error("[Jeremy - Tidal] Search FAILED:", e.message);
+    if (retry < 2) {
+      console.log("[Jeremy - Tidal] Retrying (" + (retry+1) + "/2)...");
+      return searchTidal(query, limit, retry + 1);
+    }
     return [];
   }
 };
@@ -164,9 +182,10 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   return final.slice(0, limit);
 }
 
-var getAlbum = async function(albumId){ /* same as before */ };
+var getAlbum = async function(albumId){ return null; };
 
 var preloadQueue = [];
+
 var preloadTrack = function(trackId){
   getQobuzStream(trackId).catch(function(){});
   if(preloadQueue.indexOf(trackId) === -1) preloadQueue.unshift(trackId);
@@ -178,14 +197,13 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.0",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available",
+  version: "2.1",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.1 - Tidal fixed)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
 
-    // Diagnostic mode: Only use Tidal when searching 'molecule mouth'
     if (query.toLowerCase().includes("molecule mouth")) {
       console.log("[DIAGNOSTIC] Using only Tidal for: molecule mouth");
       var tidalOnly = await searchTidal(query, limit);

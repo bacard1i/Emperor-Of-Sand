@@ -28,16 +28,6 @@ var _searchCache = new Map();
 var SEARCH_CACHE_TTL = 10 * 60 * 1000;
 var _pendingRequests = new Map();
 
-// Quality settings (user configurable)
-var DEFAULT_QUALITY = "LOSSLESS";
-
-var QUALITIES = {
-  "MAX": { qobuz: "27", tidal: "HI_RES_LOSSLESS" },
-  "LOSSLESS": { qobuz: "27", tidal: "LOSSLESS" },
-  "HIGH": { qobuz: "5", tidal: "HIGH" },
-  "LOW": { qobuz: "5", tidal: "LOW" }
-};
-
 function cleanText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 function normalizeQ(s) {
   if (!s) return '';
@@ -73,7 +63,7 @@ async function qobuzApi(endpoint, params){
   var res = await fetch(url); if(!res.ok) throw new Error("Qobuz HTTP "+res.status); return res.json();
 }
 
-// Parallel search (Qobuz + Tidal at the same time)
+// Parallel search
 var searchQobuz = async function(query, limit){
   if(!limit) limit=25;
   var cacheKey = "q_"+query+"_"+limit;
@@ -100,22 +90,52 @@ var searchQobuz = async function(query, limit){
   }catch(e){ return []; }
 };
 
-// Parallel stream fetching (race Qobuz vs Tidal)
+// Parallel stream + Force Full Track mode (anti-preview)
 async function getBestStream(track, preferredQuality) {
-  if (!preferredQuality) preferredQuality = DEFAULT_QUALITY;
-  var q = QUALITIES[preferredQuality] || QUALITIES[DEFAULT_QUALITY];
+  if (!preferredQuality) preferredQuality = "LOSSLESS";
 
   // Try Qobuz and Tidal in parallel
-  var qobuzPromise = getQobuzStream(track.qobuzId || track.id, q.qobuz).catch(() => null);
-  var tidalPromise = track.tidalId ? getTidalStream(track.tidalId, q.tidal).catch(() => null) : Promise.resolve(null);
+  var qobuzPromise = track.qobuzId ? getQobuzStream(track.qobuzId, "27").catch(() => null) : Promise.resolve(null);
+  var tidalPromise = track.tidalId ? getTidalStream(track.tidalId, preferredQuality).catch(() => null) : Promise.resolve(null);
 
   var [qobuzResult, tidalResult] = await Promise.all([qobuzPromise, tidalPromise]);
 
-  // Return the first one that succeeds
-  if (qobuzResult && qobuzResult.streamUrl) return qobuzResult;
-  if (tidalResult && tidalResult.streamUrl) return tidalResult;
+  // Return first successful full track
+  if (qobuzResult && qobuzResult.streamUrl && !isPreviewUrl(qobuzResult.streamUrl)) return qobuzResult;
+  if (tidalResult && tidalResult.streamUrl && !isPreviewUrl(tidalResult.streamUrl)) return tidalResult;
+
+  // Force Full Track mode - try even harder
+  if (track.tidalId) {
+    var forceResult = await forceFullTidalTrack(track.tidalId);
+    if (forceResult && forceResult.streamUrl) return forceResult;
+  }
 
   return { streamUrl: null, error: true };
+}
+
+function isPreviewUrl(url) {
+  if (!url) return true;
+  // Common preview indicators
+  return url.includes("preview") || url.includes("30sec") || url.length < 100;
+}
+
+// Force Full Track mode - aggressive retry across all qualities and endpoints
+async function forceFullTidalTrack(trackId) {
+  var qualities = ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"];
+
+  for (var q of qualities) {
+    try {
+      var data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + q);
+      if (data.data && data.data.manifest) {
+        var url = extractStreamUrl(data.data.manifest);
+        if (url && !isPreviewUrl(url)) return { streamUrl: url };
+      }
+      if (data.data && data.data.url && !isPreviewUrl(data.data.url)) {
+        return { streamUrl: data.data.url };
+      }
+    } catch (e) { continue; }
+  }
+  return null;
 }
 
 // Smart stream caching
@@ -205,21 +225,29 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-var getTidalStream = async function(trackId, quality) {
-  if (!quality) quality = "LOSSLESS";
-  var qualities = [quality, "LOSSLESS", "HIGH", "LOW"];
+var getTidalStream = async function(trackId, preferredQuality) {
+  if (!preferredQuality) preferredQuality = "LOSSLESS";
+  var qualities = [preferredQuality, "LOSSLESS", "HIGH", "LOW"];
+
   for (var q of qualities) {
     try {
       var data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + q);
       if (data.data && data.data.manifest) {
         var url = extractStreamUrl(data.data.manifest);
-        if (url) return { streamUrl: url };
+        if (url && !isPreviewUrl(url)) return { streamUrl: url };
       }
-      if (data.data && data.data.url) return { streamUrl: data.data.url };
+      if (data.data && data.data.url && !isPreviewUrl(data.data.url)) {
+        return { streamUrl: data.data.url };
+      }
     } catch (e) { continue; }
   }
   return { streamUrl: null };
 };
+
+function isPreviewUrl(url) {
+  if (!url) return true;
+  return url.includes("preview") || url.includes("30sec") || url.length < 100;
+}
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
   var final = [];
@@ -250,29 +278,24 @@ return {
   description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.2)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
-  // Quality selector (user can change this)
   settings: {
     preferredQuality: {
       type: "select",
       label: "Preferred Quality",
       options: ["MAX", "LOSSLESS", "HIGH", "LOW"],
-      default: DEFAULT_QUALITY
+      default: "LOSSLESS"
     }
   },
 
   searchTracks: async function(query, limit, settings){
     if(!limit) limit=25;
-    var quality = (settings && settings.preferredQuality) || DEFAULT_QUALITY;
-
     if (query.toLowerCase().includes("molecule mouth")) {
       var tidalOnly = await searchTidal(query, limit);
       return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
     }
-
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);
     if(cached && Date.now()-cached.ts < SEARCH_CACHE_TTL) return { tracks: cached.data, total: cached.data.length };
-
     var [qobuz, tidal] = await Promise.all([ searchQobuz(query, limit), searchTidal(query, limit) ]);
     var merged = mergeSmart(qobuz || [], tidal || [], limit);
     _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
@@ -280,7 +303,7 @@ return {
   },
 
   getTrackStreamUrl: async function(track, settings){
-    var quality = (settings && settings.preferredQuality) || DEFAULT_QUALITY;
+    var quality = (settings && settings.preferredQuality) || "LOSSLESS";
     return await getBestStream(track, quality);
   },
 

@@ -3,21 +3,11 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Top 12 best Tidal endpoints (cleaned)
-var TIDAL_ENDPOINTS = [
-  "https://tidal.squid.wtf",
-  "https://tidal-api.binimum.org",
-  "https://triton.squid.wtf",
-  "https://aether.squid.wtf",
-  "https://zeus.squid.wtf",
-  "https://kraken.squid.wtf",
-  "https://phoenix.squid.wtf",
-  "https://shiva.squid.wtf",
-  "https://chaos.squid.wtf",
-  "https://tidal.kinoplus.online",
-  "https://hifi-one.spotisaver.net",
-  "https://hifi-two.spotisaver.net"
-];
+// ==================== TIDAL BACKENDS ====================
+var PRIMARY_TIDAL = "https://sultans-curse.onrender.com";     // Main (was working before)
+var FALLBACK_TIDAL = "https://tidal.qqdl.site";               // New active proxy as fallback
+
+var TIDAL_ENDPOINTS = [PRIMARY_TIDAL, FALLBACK_TIDAL];
 
 var TIMEOUT_MS = 8000;
 
@@ -96,7 +86,6 @@ var getQobuzStream = async function(trackId, retry){
   try{
     var ts = Math.floor(Date.now()/1000);
     
-    // Better signature (2026 format)
     var sig = md5(
       "trackgetFileUrl" +
       "app_id" + APP_ID +
@@ -138,57 +127,68 @@ var getQobuzStream = async function(trackId, retry){
   }
 };
 
-// ==================== v2.7.6 - IMPROVED DIRECT QOBUZ ====================
+// ==================== v2.7.7 - BACK TO WORKING BACKEND + FALLBACK ====================
 
 function isPreviewUrl(url) {
   if (!url) return true;
   return url.includes("preview") || url.includes("30sec") || url.length < 200;
 }
 
+async function getTidalStreamFromBackend(trackId, backend) {
+  try {
+    const data = await fetch(backend + '/track/?id=' + trackId + '&quality=LOSSLESS');
+    if (!data.ok) throw new Error('HTTP ' + data.status);
+    
+    const json = await data.json();
+    
+    if (json.data && json.data.manifest) {
+      const streamUrl = extractStreamUrl(json.data.manifest);
+      if (streamUrl && !isPreviewUrl(streamUrl)) {
+        return { streamUrl: streamUrl, source: 'Tidal (Primary)' };
+      }
+    }
+    
+    // Try HIGH if LOSSLESS fails
+    const data2 = await fetch(backend + '/track/?id=' + trackId + '&quality=HIGH');
+    if (data2.ok) {
+      const json2 = await data2.json();
+      if (json2.data && json2.data.manifest) {
+        const streamUrl2 = extractStreamUrl(json2.data.manifest);
+        if (streamUrl2 && !isPreviewUrl(streamUrl2)) {
+          return { streamUrl: streamUrl2, source: 'Tidal (Fallback HIGH)' };
+        }
+      }
+    }
+    
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function getBestStream(track) {
+  // QOBUZ first
   if (track.qobuzId) {
     try {
       var q = await getQobuzStream(track.qobuzId, 0);
       if (q && q.streamUrl && !isPreviewUrl(q.streamUrl)) {
         return q;
       }
-    } catch (e) { console.log("[Jeremy] Qobuz error:", e.message); }
+    } catch (e) { console.log("[Jeremy] Qobuz failed:", e.message); }
   }
 
+  // TIDAL - Primary backend first, then fallback
   if (track.tidalId) {
-    try {
-      var t = await getTidalStream(track.tidalId);
-      if (t && t.streamUrl && !isPreviewUrl(t.streamUrl)) {
-        return t;
-      }
-    } catch (e) { console.log("[Jeremy] Tidal error:", e.message); }
+    // Try primary backend first
+    var primary = await getTidalStreamFromBackend(track.tidalId, PRIMARY_TIDAL);
+    if (primary && primary.streamUrl) return primary;
+    
+    // Fallback to new active proxy
+    var fallback = await getTidalStreamFromBackend(track.tidalId, FALLBACK_TIDAL);
+    if (fallback && fallback.streamUrl) return fallback;
   }
 
   return { streamUrl: null, error: true };
-}
-
-// Cerberus-style Tidal multi-endpoint racing
-async function fetchWithRace(endpoint) {
-  const tried = new Set();
-  while (tried.size < TIDAL_ENDPOINTS.length) {
-    const available = TIDAL_ENDPOINTS.filter(e => !tried.has(e));
-    const batchSize = Math.min(3, available.length);
-    if (batchSize === 0) break;
-    const batch = available.sort(() => Math.random() - 0.5).slice(0, batchSize);
-    batch.forEach(e => tried.add(e));
-    try {
-      const result = await Promise.any(
-        batch.map(baseUrl =>
-          fetch(baseUrl + endpoint, { headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' } })
-            .then(response => { if (!response.ok) throw new Error('HTTP ' + response.status); return response.json(); })
-        )
-      );
-      return result;
-    } catch (e) {
-      continue;
-    }
-  }
-  throw new Error('All Tidal endpoints failed');
 }
 
 function extractStreamUrl(manifest) {
@@ -207,8 +207,12 @@ var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
   if (retry === undefined) retry = 0;
   try {
-    const data = await fetchWithRace('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
-    const items = data.data?.items || [];
+    const data = await fetch(PRIMARY_TIDAL + '/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
+    if (!data.ok) throw new Error('Primary backend failed');
+    
+    const json = await data.json();
+    const items = json.data?.items || [];
+    
     return items.map(function(t) {
       return {
         id: "tidal:" + t.id,
@@ -219,27 +223,24 @@ var searchTidal = async function(query, limit, retry) {
       };
     });
   } catch (e) {
-    if (retry < 1) return searchTidal(query, limit, retry + 1);
-    return [];
-  }
-};
-
-var getTidalStream = async function(trackId) {
-  const qualities = ["LOSSLESS", "HIGH", "LOW"];
-  for (const quality of qualities) {
+    // Fallback to qqdl.site
     try {
-      const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
-      if (data.data && data.data.manifest) {
-        const streamUrl = extractStreamUrl(data.data.manifest);
-        if (streamUrl) {
-          return { streamUrl: streamUrl };
-        }
-      }
-    } catch (e) {
-      continue;
+      const data2 = await fetch(FALLBACK_TIDAL + '/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
+      const json2 = await data2.json();
+      const items2 = json2.data?.items || [];
+      return items2.map(function(t) {
+        return {
+          id: "tidal:" + t.id,
+          source: "Tidal",
+          tidalId: t.id,
+          audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
+          title: cleanText(getFullTitle(t) || t.title || "")
+        };
+      });
+    } catch (e2) {
+      return [];
     }
   }
-  return { streamUrl: null };
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
@@ -278,8 +279,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.6",
-  description: "Qobuz Hi-Res + Tidal Fallback • Improved Direct Qobuz (v2.7.6)",
+  version: "2.7.7",
+  description: "Qobuz Hi-Res + Tidal (Primary: sultans-curse + Fallback: qqdl) v2.7.7",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

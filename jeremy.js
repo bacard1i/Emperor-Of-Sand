@@ -175,12 +175,21 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.5",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.5 - Stable)",
+  version: "2.6",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
+
+    if (query.toLowerCase().includes("molecule mouth")) {
+      try {
+        var tidalOnly = await searchTidal(query, limit);
+        return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
+      } catch (e) {
+        return { tracks: [], total: 0 };
+      }
+    }
 
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);

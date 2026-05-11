@@ -1,16 +1,16 @@
 {
   "category:modules": [
     {
-      "id": "jeremy2",
-      "name": "Jeremy 2",
-      "pkg": "com.8spine.module.jeremy2",
+      "id": "jeremy",
+      "name": "Jeremy",
+      "pkg": "com.8spine.module.jeremy",
       "file": "jeremy.js",
       "download": "https://raw.githubusercontent.com/bacard1i/emperor-of-sand/main/jeremy.js",
-      "version": "2.7.2",
-      "code": 272,
+      "version": "2.7.4",
+      "code": 274,
       "type": "STREAM",
       "author": "bacardii",
-      "description": "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.2)",
+      "description": "Qobuz Hi-Res + Tidal Fallback • Simplified Reliable Streams (v2.7.4)",
       "tags": ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
       "featured": false,
       "trusted": true,
@@ -20,10 +20,10 @@
       "folder": "modules",
       "sources": [
         {
-          "name": "Jeremy 2",
+          "name": "Jeremy",
           "lang": "all",
-          "id": "jeremy2",
-          "baseUrl": "."
+          "id": "jeremy",
+          "baseUrl": "https://raw.githubusercontent.com/bacard1i/emperor-of-sand/main/"
         }
       ]
     }

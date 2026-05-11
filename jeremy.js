@@ -3,23 +3,23 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Expanded Tidal endpoints for better reliability
+// Optimized Tidal endpoints - best ones first for speed
 var TIDAL_ENDPOINTS = [
   "https://tidal.squid.wtf",
-  "https://triton.squid.wtf",
-  "https://tidal.kinoplus.online",
-  "https://wolf.qqdl.site",
-  "https://maus.qqdl.site",
-  "https://vogel.qqdl.site",
-  "https://katze.qqdl.site",
-  "https://hund.qqdl.site",
   "https://tidal-api.binimum.org",
+  "https://triton.squid.wtf",
   "https://aether.squid.wtf",
   "https://zeus.squid.wtf",
   "https://kraken.squid.wtf",
   "https://phoenix.squid.wtf",
   "https://shiva.squid.wtf",
   "https://chaos.squid.wtf",
+  "https://tidal.kinoplus.online",
+  "https://wolf.qqdl.site",
+  "https://maus.qqdl.site",
+  "https://vogel.qqdl.site",
+  "https://katze.qqdl.site",
+  "https://hund.qqdl.site",
   "https://hifi-one.spotisaver.net",
   "https://hifi-two.spotisaver.net",
   "https://monochrome.samidy.com",
@@ -27,12 +27,10 @@ var TIDAL_ENDPOINTS = [
   "https://music.binimum.org",
   "https://tidal.qqdl.site",
   "https://music.arjix.dev",
-  "https://spo.free.nf",
-  "https://tidal.hifi-api.com",
-  "https://hifi-api.onrender.com"
+  "https://spo.free.nf"
 ];
 
-var TIMEOUT_MS = 10000;
+var TIMEOUT_MS = 6000;
 var _streamCache = new Map();
 var STREAM_CACHE_TTL = 12 * 60 * 1000;
 var _searchCache = new Map();
@@ -117,21 +115,15 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-// Improved multi-endpoint racing with better error handling
+// Fast parallel racing - more endpoints, shorter timeout
 async function fetchWithRace(endpoint) {
   const tried = new Set();
-  let attempts = 0;
-  const maxAttempts = 5;
-
-  while (tried.size < TIDAL_ENDPOINTS.length && attempts < maxAttempts) {
-    attempts++;
+  while (tried.size < TIDAL_ENDPOINTS.length) {
     const available = TIDAL_ENDPOINTS.filter(e => !tried.has(e));
-    const batchSize = Math.min(4, available.length);
+    const batchSize = Math.min(5, available.length);
     if (batchSize === 0) break;
-
     const batch = available.sort(() => Math.random() - 0.5).slice(0, batchSize);
     batch.forEach(e => tried.add(e));
-
     try {
       const result = await Promise.any(
         batch.map(baseUrl =>
@@ -150,7 +142,7 @@ async function fetchWithRace(endpoint) {
       continue;
     }
   }
-  throw new Error('All Tidal endpoints failed after ' + attempts + ' attempts');
+  throw new Error('All Tidal endpoints failed');
 }
 
 function extractStreamUrl(manifest) {
@@ -196,32 +188,36 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-// Improved Tidal playback with aggressive fallback
+// Fast + reliable Tidal playback - parallel + smart fallback
 var getTidalStream = async function(trackId) {
-  const qualities = ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"];
+  const qualities = ["LOSSLESS", "HIGH", "LOW"];
 
-  for (let attempt = 0; attempt < 2; attempt++) {
-    for (const quality of qualities) {
-      try {
-        const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
-        if (data.data && data.data.manifest) {
-          const streamUrl = extractStreamUrl(data.data.manifest);
-          if (streamUrl) {
-            return { streamUrl: streamUrl };
-          }
-        }
-        if (data.data && data.data.url) {
-          return { streamUrl: data.data.url };
-        }
-      } catch (e) {
-        continue;
+  // First attempt: parallel race across best endpoints
+  for (const quality of qualities) {
+    try {
+      const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
+      if (data.data && data.data.manifest) {
+        const streamUrl = extractStreamUrl(data.data.manifest);
+        if (streamUrl) return { streamUrl: streamUrl };
       }
+      if (data.data && data.data.url) {
+        return { streamUrl: data.data.url };
+      }
+    } catch (e) {
+      continue;
     }
-    // Small delay between attempts
-    await new Promise(r => setTimeout(r, 500));
   }
 
-  return { streamUrl: null, error: true };
+  // Second attempt: try HI_RES if normal qualities failed
+  try {
+    const data = await fetchWithRace('/track/?id=' + trackId + '&quality=HI_RES_LOSSLESS');
+    if (data.data && data.data.manifest) {
+      const streamUrl = extractStreamUrl(data.data.manifest);
+      if (streamUrl) return { streamUrl: streamUrl };
+    }
+  } catch (e) {}
+
+  return { streamUrl: null };
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {

@@ -3,7 +3,7 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Best Tidal endpoints first (from binimum + community knowledge)
+// Top 12 best Tidal endpoints (cleaned - only the strongest)
 var TIDAL_ENDPOINTS = [
   "https://tidal.squid.wtf",
   "https://tidal-api.binimum.org",
@@ -15,19 +15,8 @@ var TIDAL_ENDPOINTS = [
   "https://shiva.squid.wtf",
   "https://chaos.squid.wtf",
   "https://tidal.kinoplus.online",
-  "https://wolf.qqdl.site",
-  "https://maus.qqdl.site",
-  "https://vogel.qqdl.site",
-  "https://katze.qqdl.site",
-  "https://hund.qqdl.site",
   "https://hifi-one.spotisaver.net",
-  "https://hifi-two.spotisaver.net",
-  "https://monochrome.samidy.com",
-  "https://monochrome-api.samidy.com",
-  "https://music.binimum.org",
-  "https://tidal.qqdl.site",
-  "https://music.arjix.dev",
-  "https://spo.free.nf"
+  "https://hifi-two.spotisaver.net"
 ];
 
 var TIMEOUT_MS = 6000;

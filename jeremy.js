@@ -200,13 +200,13 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   return final.slice(0, limit);
 }
 
-// v2.8.1: Album Quality Display (Hi-Res focused)
+// v2.8.2: Simple array return (stable)
 var getAlbumTracks = async function(albumId) {
   try {
     var data = await withTimeout(qobuzApi("/album/get", {album_id: albumId}), TIMEOUT_MS);
     if (!data || !data.tracks || !data.tracks.items) return [];
 
-    var tracks = data.tracks.items.map(function(t) {
+    return data.tracks.items.map(function(t) {
       var sr = t.maximum_sampling_rate || t.sampling_rate || 0;
       var bit = t.maximum_bit_depth || t.bit_depth || 16;
       return {
@@ -214,25 +214,11 @@ var getAlbumTracks = async function(albumId) {
         title: cleanText(getFullTitle(t)),
         duration: t.duration || 0,
         audioQuality: bit + "-bit / " + sr + " kHz (Q)",
-        bitDepth: bit,
-        sampleRate: sr,
         source: "Qobuz"
       };
     });
-
-    // Check if all tracks have the same quality
-    var firstQuality = tracks.length > 0 ? tracks[0].audioQuality : null;
-    var allSame = tracks.length > 0 && tracks.every(function(t) {
-      return t.audioQuality === firstQuality;
-    });
-
-    return {
-      tracks: tracks,
-      albumQualitySummary: allSame ? firstQuality.replace(" (Q)", " Album") : null,
-      totalTracks: tracks.length
-    };
   } catch (e) {
-    return { tracks: [], albumQualitySummary: null, totalTracks: 0, error: true };
+    return [];
   }
 };
 
@@ -270,9 +256,9 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.8.1",
-  description: "Qobuz Hi-Res + Tidal Fallback • Album Quality Display + Multi-Backend (v2.8.1)",
-  labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART", "QUALITY"],
+  version: "2.8.2",
+  description: "Qobuz Hi-Res + Tidal Fallback • Stable Navigation + Per-Track Quality (v2.8.2)",
+  labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;

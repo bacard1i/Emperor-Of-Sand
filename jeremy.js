@@ -2,7 +2,6 @@ var APP_ID = "312369995";
 var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g";
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
-var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
 
 // Cerberus-style multi-endpoint racing for Tidal
 var TIDAL_ENDPOINTS = [
@@ -116,7 +115,7 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-// Cerberus-style Tidal multi-endpoint racing
+// Improved Tidal search with better data normalization
 async function fetchWithRace(endpoint) {
   const tried = new Set();
   while (tried.size < TIDAL_ENDPOINTS.length) {
@@ -152,19 +151,35 @@ function extractStreamUrl(manifest) {
   return null;
 }
 
+// Better Tidal search with improved artist/title normalization
 var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
   if (retry === undefined) retry = 0;
   try {
     const data = await fetchWithRace('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
     const items = data.data?.items || [];
+
     return items.map(function(t) {
+      // Better artist extraction from different backend formats
+      var artistName = "Unknown Artist";
+      if (t.artist && t.artist.name) {
+        artistName = t.artist.name;
+      } else if (t.artists && t.artists.length > 0 && t.artists[0].name) {
+        artistName = t.artists[0].name;
+      } else if (t.performer && t.performer.name) {
+        artistName = t.performer.name;
+      }
+
+      // Better title extraction
+      var title = cleanText(getFullTitle(t) || t.title || "Unknown Title");
+
       return {
         id: "tidal:" + t.id,
         source: "Tidal",
         tidalId: t.id,
         audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
-        title: cleanText(getFullTitle(t) || t.title || "")
+        title: title,
+        artist: artistName
       };
     });
   } catch (e) {
@@ -225,8 +240,8 @@ var preloadTrack = function(trackId){
 };
 
 return {
-  id: "jeremy",
-  name: "Jeremy",
+  id: "jeremy2",
+  name: "Jeremy 2",
   author: "bacardii",
   version: "2.7.2",
   description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.2)",

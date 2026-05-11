@@ -2,7 +2,13 @@ var APP_ID = "312369995";
 var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g";
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
-var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
+
+// Phase 1: Multiple Tidal backends for reliability
+var TIDAL_BACKENDS = [
+  "https://sultans-curse.onrender.com",
+  "https://hifi-api.onrender.com",
+  "https://tidal.hifi-api.com"
+];
 
 var TIMEOUT_MS = 8000;
 var _streamCache = new Map();
@@ -93,69 +99,80 @@ var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
   if (retry === undefined) retry = 0;
 
-  try {
-    var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
-    var res = await withTimeout(fetch(url), TIMEOUT_MS);
-    var raw = await res.json();
-
-    var payload = raw.data || raw;
-    var tidalTracks = [];
-    if (payload.tracks) {
-      tidalTracks = Array.isArray(payload.tracks) ? payload.tracks : (payload.tracks.items || []);
-    } else if (payload.items) {
-      tidalTracks = payload.items;
-    } else if (payload.data && payload.data.tracks) {
-      tidalTracks = Array.isArray(payload.data.tracks) ? payload.data.tracks : (payload.data.tracks.items || []);
-    }
-
-    if (!tidalTracks || tidalTracks.length === 0) {
-      return [];
-    }
-
-    return tidalTracks.map(function(t) {
-      var tid = t.id || t.trackId || "";
-      return Object.assign({}, t, {
-        id: "tidal:" + tid,
-        source: "Tidal",
-        tidalId: tid,
-        audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
-        title: cleanText(getFullTitle(t) || t.title || "")
-      });
-    });
-
-  } catch (e) {
-    if (retry < 1) return searchTidal(query, limit, retry + 1);
-    return [];
-  }
-};
-
-var getTidalStream = async function(trackId) {
-  const qualities = ["LOSSLESS", "HIGH", "LOW"];
-  for (const quality of qualities) {
+  for (var i = 0; i < TIDAL_BACKENDS.length; i++) {
+    var backend = TIDAL_BACKENDS[i];
     try {
-      var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
-      var data = await res.json();
+      var url = backend + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
+      var res = await withTimeout(fetch(url), TIMEOUT_MS);
+      var raw = await res.json();
 
-      if (data.manifest) {
-        try {
-          var decoded = atob(data.manifest);
-          var manifest = JSON.parse(decoded);
-          if (manifest.urls && manifest.urls.length > 0) {
-            return { streamUrl: manifest.urls[0] };
-          }
-        } catch (e) {
-          // manifest decode failed, try fallback
-        }
+      var payload = raw.data || raw;
+      var tidalTracks = [];
+      if (payload.tracks) {
+        tidalTracks = Array.isArray(payload.tracks) ? payload.tracks : (payload.tracks.items || []);
+      } else if (payload.items) {
+        tidalTracks = payload.items;
+      } else if (payload.data && payload.data.tracks) {
+        tidalTracks = Array.isArray(payload.data.tracks) ? payload.data.tracks : (payload.data.tracks.items || []);
       }
 
-      if (data.streamUrl || data.url) {
-        return { streamUrl: data.streamUrl || data.url };
+      if (tidalTracks && tidalTracks.length > 0) {
+        return tidalTracks.map(function(t) {
+          var tid = t.id || t.trackId || "";
+          return Object.assign({}, t, {
+            id: "tidal:" + tid,
+            source: "Tidal",
+            tidalId: tid,
+            audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (T)",
+            title: cleanText(getFullTitle(t) || t.title || "")
+          });
+        });
       }
     } catch (e) {
-      continue;
+      continue; // try next backend
     }
   }
-  return { streamUrl: null };
+  return [];
+};
+
+var getTidalStream = async function(trackId, retryCount) {
+  if (!retryCount) retryCount = 0;
+  const qualities = ["LOSSLESS", "HIGH", "LOW"];
+
+  for (var b = 0; b < TIDAL_BACKENDS.length; b++) {
+    var backend = TIDAL_BACKENDS[b];
+    for (const quality of qualities) {
+      try {
+        var res = await withTimeout(fetch(backend + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
+        var data = await res.json();
+
+        if (data.manifest) {
+          try {
+            var decoded = atob(data.manifest);
+            var manifest = JSON.parse(decoded);
+            if (manifest.urls && manifest.urls.length > 0) {
+              return { streamUrl: manifest.urls[0] };
+            }
+          } catch (e) {}
+        }
+
+        if (data.streamUrl || data.url) {
+          return { streamUrl: data.streamUrl || data.url };
+        }
+      } catch (e) {
+        continue;
+      }
+    }
+  }
+
+  // Exponential backoff retry
+  if (retryCount < 2) {
+    var delay = Math.pow(2, retryCount) * 1000;
+    await new Promise(r => setTimeout(r, delay));
+    return getTidalStream(trackId, retryCount + 1);
+  }
+
+  return { streamUrl: null, error: true, message: "All Tidal backends failed" };
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
@@ -184,6 +201,34 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   return final.slice(0, limit);
 }
 
+// Phase 1: Basic Artist/Album Navigation (stubs - full support in Phase 2 with Oracle)
+var searchArtists = async function(query, limit) {
+  if (!limit) limit = 10;
+  // Use Tidal search and filter for artists (basic implementation)
+  try {
+    var results = await searchTidal(query + " artist", limit);
+    return results.map(function(r) {
+      return {
+        id: r.tidalId || r.id,
+        name: r.artist || r.title || "Unknown Artist",
+        source: "Tidal"
+      };
+    });
+  } catch (e) {
+    return [];
+  }
+};
+
+var getArtistAlbums = async function(artistId) {
+  // Stub - returns empty for now. Full implementation in Phase 2
+  return [];
+};
+
+var getAlbumTracks = async function(albumId) {
+  // Stub - returns empty for now. Full implementation in Phase 2
+  return [];
+};
+
 var getAlbum = async function(albumId){ return null; };
 
 var preloadQueue = [];
@@ -198,9 +243,9 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.1",
-  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal Playback (v2.7.1)",
-  labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
+  version: "2.8.0",
+  description: "Qobuz Hi-Res + Tidal Fallback • Phase 1: Multi-Backend + Navigation + Better Errors (v2.8.0)",
+  labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART", "NAVIGATION"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
@@ -210,7 +255,7 @@ return {
         var tidalOnly = await searchTidal(query, limit);
         return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
       } catch (e) {
-        return { tracks: [], total: 0 };
+        return { tracks: [], total: 0, error: true };
       }
     }
 
@@ -227,7 +272,7 @@ return {
       _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
       return { tracks: merged, total: merged.length };
     } catch (e) {
-      return { tracks: [], total: 0 };
+      return { tracks: [], total: 0, error: true, message: e.message };
     }
   },
 
@@ -239,6 +284,11 @@ return {
       return await getQobuzStream(trackId);
     }
   },
+
+  // New in v2.8.0
+  searchArtists: searchArtists,
+  getArtistAlbums: getArtistAlbums,
+  getAlbumTracks: getAlbumTracks,
 
   getAlbum: getAlbum,
   preloadTrack: preloadTrack

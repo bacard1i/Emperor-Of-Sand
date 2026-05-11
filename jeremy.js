@@ -186,8 +186,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.7.1",
-  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.1)",
+  version: "2.7.0",
+  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality (v2.7.0)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

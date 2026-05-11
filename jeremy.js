@@ -3,7 +3,7 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Top 12 best Tidal endpoints (cleaned - only the strongest)
+// Top 12 best Tidal endpoints
 var TIDAL_ENDPOINTS = [
   "https://tidal.squid.wtf",
   "https://tidal-api.binimum.org",
@@ -21,12 +21,22 @@ var TIDAL_ENDPOINTS = [
 
 var TIMEOUT_MS = 6000;
 
-// Smart caching (binimum style)
+// Smart caching
 var _streamCache = new Map();
 var STREAM_CACHE_TTL = 15 * 60 * 1000;
 var _searchCache = new Map();
 var SEARCH_CACHE_TTL = 10 * 60 * 1000;
-var _pendingRequests = new Map(); // Request deduplication
+var _pendingRequests = new Map();
+
+// Quality settings (user configurable)
+var DEFAULT_QUALITY = "LOSSLESS";
+
+var QUALITIES = {
+  "MAX": { qobuz: "27", tidal: "HI_RES_LOSSLESS" },
+  "LOSSLESS": { qobuz: "27", tidal: "LOSSLESS" },
+  "HIGH": { qobuz: "5", tidal: "HIGH" },
+  "LOW": { qobuz: "5", tidal: "LOW" }
+};
 
 function cleanText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 function normalizeQ(s) {
@@ -63,7 +73,7 @@ async function qobuzApi(endpoint, params){
   var res = await fetch(url); if(!res.ok) throw new Error("Qobuz HTTP "+res.status); return res.json();
 }
 
-// Smart search caching (binimum style)
+// Parallel search (Qobuz + Tidal at the same time)
 var searchQobuz = async function(query, limit){
   if(!limit) limit=25;
   var cacheKey = "q_"+query+"_"+limit;
@@ -90,7 +100,25 @@ var searchQobuz = async function(query, limit){
   }catch(e){ return []; }
 };
 
-// Smart stream caching with quality awareness (binimum style)
+// Parallel stream fetching (race Qobuz vs Tidal)
+async function getBestStream(track, preferredQuality) {
+  if (!preferredQuality) preferredQuality = DEFAULT_QUALITY;
+  var q = QUALITIES[preferredQuality] || QUALITIES[DEFAULT_QUALITY];
+
+  // Try Qobuz and Tidal in parallel
+  var qobuzPromise = getQobuzStream(track.qobuzId || track.id, q.qobuz).catch(() => null);
+  var tidalPromise = track.tidalId ? getTidalStream(track.tidalId, q.tidal).catch(() => null) : Promise.resolve(null);
+
+  var [qobuzResult, tidalResult] = await Promise.all([qobuzPromise, tidalPromise]);
+
+  // Return the first one that succeeds
+  if (qobuzResult && qobuzResult.streamUrl) return qobuzResult;
+  if (tidalResult && tidalResult.streamUrl) return tidalResult;
+
+  return { streamUrl: null, error: true };
+}
+
+// Smart stream caching
 var getQobuzStream = async function(trackId, quality, retry){
   if(!retry) retry=0;
   if(!quality) quality = "27";
@@ -110,45 +138,32 @@ var getQobuzStream = async function(trackId, quality, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, quality, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-// Request deduplication (binimum style)
 async function dedupedFetch(key, fetchFn) {
-  if (_pendingRequests.has(key)) {
-    return _pendingRequests.get(key);
-  }
-  const promise = fetchFn().finally(() => {
-    _pendingRequests.delete(key);
-  });
+  if (_pendingRequests.has(key)) return _pendingRequests.get(key);
+  var promise = fetchFn().finally(() => _pendingRequests.delete(key));
   _pendingRequests.set(key, promise);
   return promise;
 }
 
-// Fast parallel racing (binimum inspired)
 async function fetchWithRace(endpoint) {
-  const tried = new Set();
+  var tried = new Set();
   while (tried.size < TIDAL_ENDPOINTS.length) {
-    const available = TIDAL_ENDPOINTS.filter(e => !tried.has(e));
-    const batchSize = Math.min(5, available.length);
+    var available = TIDAL_ENDPOINTS.filter(e => !tried.has(e));
+    var batchSize = Math.min(5, available.length);
     if (batchSize === 0) break;
-    const batch = available.sort(() => Math.random() - 0.5).slice(0, batchSize);
+    var batch = available.sort(() => Math.random() - 0.5).slice(0, batchSize);
     batch.forEach(e => tried.add(e));
     try {
-      const result = await Promise.any(
+      var result = await Promise.any(
         batch.map(baseUrl =>
           dedupedFetch(baseUrl + endpoint, () =>
-            fetch(baseUrl + endpoint, {
-              headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' },
-              signal: AbortSignal.timeout(TIMEOUT_MS)
-            }).then(response => {
-              if (!response.ok) throw new Error('HTTP ' + response.status);
-              return response.json();
-            })
+            fetch(baseUrl + endpoint, { headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' }, signal: AbortSignal.timeout(TIMEOUT_MS) })
+              .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           )
         )
       );
       return result;
-    } catch (e) {
-      continue;
-    }
+    } catch (e) { continue; }
   }
   throw new Error('All Tidal endpoints failed');
 }
@@ -156,31 +171,25 @@ async function fetchWithRace(endpoint) {
 function extractStreamUrl(manifest) {
   if (!manifest) return null;
   try {
-    const decoded = atob(manifest);
-    const parsed = JSON.parse(decoded);
-    if (parsed.urls && Array.isArray(parsed.urls) && parsed.urls.length > 0) {
-      return parsed.urls[0];
-    }
-  } catch (error) {}
+    var decoded = atob(manifest);
+    var parsed = JSON.parse(decoded);
+    if (parsed.urls && parsed.urls.length > 0) return parsed.urls[0];
+  } catch (e) {}
   return null;
 }
 
-// Improved Tidal search
 var searchTidal = async function(query, limit, retry) {
   if (!limit) limit = 25;
   if (retry === undefined) retry = 0;
   try {
-    const data = await fetchWithRace('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
-    const items = data.data?.items || [];
-
+    var data = await fetchWithRace('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
+    var items = data.data?.items || [];
     return items.map(function(t) {
       var artistName = "Unknown Artist";
       if (t.artist && t.artist.name) artistName = t.artist.name;
       else if (t.artists && t.artists.length > 0 && t.artists[0].name) artistName = t.artists[0].name;
       else if (t.performer && t.performer.name) artistName = t.performer.name;
-
       var title = cleanText(getFullTitle(t) || t.title || "Unknown Title");
-
       return {
         id: "tidal:" + t.id,
         source: "Tidal",
@@ -196,35 +205,19 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-// Smart Tidal playback with quality awareness (binimum style)
-var getTidalStream = async function(trackId) {
-  const qualities = ["LOSSLESS", "HIGH", "LOW"];
-
-  // Try normal qualities first (faster)
-  for (const quality of qualities) {
+var getTidalStream = async function(trackId, quality) {
+  if (!quality) quality = "LOSSLESS";
+  var qualities = [quality, "LOSSLESS", "HIGH", "LOW"];
+  for (var q of qualities) {
     try {
-      const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
+      var data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + q);
       if (data.data && data.data.manifest) {
-        const streamUrl = extractStreamUrl(data.data.manifest);
-        if (streamUrl) return { streamUrl: streamUrl };
+        var url = extractStreamUrl(data.data.manifest);
+        if (url) return { streamUrl: url };
       }
-      if (data.data && data.data.url) {
-        return { streamUrl: data.data.url };
-      }
-    } catch (e) {
-      continue;
-    }
+      if (data.data && data.data.url) return { streamUrl: data.data.url };
+    } catch (e) { continue; }
   }
-
-  // Fallback to HI_RES only if normal qualities failed
-  try {
-    const data = await fetchWithRace('/track/?id=' + trackId + '&quality=HI_RES_LOSSLESS');
-    if (data.data && data.data.manifest) {
-      const streamUrl = extractStreamUrl(data.data.manifest);
-      if (streamUrl) return { streamUrl: streamUrl };
-    }
-  } catch (e) {}
-
   return { streamUrl: null };
 };
 
@@ -234,32 +227,20 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   var seenKey = new Set();
   qobuzTracks.forEach(function(t) {
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
-    if (!seenKey.has(key)) {
-      seenKey.add(key);
-      if (t.isrc) seenISRC.add(t.isrc);
-      final.push(t);
-    }
+    if (!seenKey.has(key)) { seenKey.add(key); if (t.isrc) seenISRC.add(t.isrc); final.push(t); }
   });
   tidalTracks.forEach(function(t) {
     if (t.isrc && seenISRC.has(t.isrc)) return;
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
     if (seenKey.has(key)) return;
-    seenKey.add(key);
-    if (t.isrc) seenISRC.add(t.isrc);
-    final.push(t);
+    seenKey.add(key); if (t.isrc) seenISRC.add(t.isrc); final.push(t);
   });
   return final.slice(0, limit);
 }
 
 var getAlbum = async function(albumId){ return null; };
 
-var preloadQueue = [];
-var preloadTrack = function(trackId){
-  getQobuzStream(trackId).catch(function(){});
-  if(preloadQueue.indexOf(trackId) === -1) preloadQueue.unshift(trackId);
-  if(preloadQueue.length > 25) preloadQueue.length = 25;
-  return Promise.resolve({ status: "preloaded" });
-};
+var preloadTrack = function(trackId){ getQobuzStream(trackId).catch(function(){}); return Promise.resolve({ status: "preloaded" }); };
 
 return {
   id: "jeremy2",
@@ -269,42 +250,38 @@ return {
   description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality + Fixed Tidal (v2.7.2)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
-  searchTracks: async function(query, limit){
+  // Quality selector (user can change this)
+  settings: {
+    preferredQuality: {
+      type: "select",
+      label: "Preferred Quality",
+      options: ["MAX", "LOSSLESS", "HIGH", "LOW"],
+      default: DEFAULT_QUALITY
+    }
+  },
+
+  searchTracks: async function(query, limit, settings){
     if(!limit) limit=25;
+    var quality = (settings && settings.preferredQuality) || DEFAULT_QUALITY;
 
     if (query.toLowerCase().includes("molecule mouth")) {
-      try {
-        var tidalOnly = await searchTidal(query, limit);
-        return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
-      } catch (e) {
-        return { tracks: [], total: 0 };
-      }
+      var tidalOnly = await searchTidal(query, limit);
+      return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
     }
 
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);
     if(cached && Date.now()-cached.ts < SEARCH_CACHE_TTL) return { tracks: cached.data, total: cached.data.length };
 
-    try {
-      var [qobuz, tidal] = await Promise.all([
-        searchQobuz(query, limit),
-        searchTidal(query, limit)
-      ]);
-      var merged = mergeSmart(qobuz || [], tidal || [], limit);
-      _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
-      return { tracks: merged, total: merged.length };
-    } catch (e) {
-      return { tracks: [], total: 0 };
-    }
+    var [qobuz, tidal] = await Promise.all([ searchQobuz(query, limit), searchTidal(query, limit) ]);
+    var merged = mergeSmart(qobuz || [], tidal || [], limit);
+    _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
+    return { tracks: merged, total: merged.length };
   },
 
-  getTrackStreamUrl: async function(trackId) {
-    if (typeof trackId === "string" && trackId.indexOf("tidal:") === 0) {
-      var realId = trackId.replace("tidal:", "");
-      return await getTidalStream(realId);
-    } else {
-      return await getQobuzStream(trackId);
-    }
+  getTrackStreamUrl: async function(track, settings){
+    var quality = (settings && settings.preferredQuality) || DEFAULT_QUALITY;
+    return await getBestStream(track, quality);
   },
 
   getAlbum: getAlbum,

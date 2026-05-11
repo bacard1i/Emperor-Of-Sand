@@ -95,14 +95,10 @@ var searchTidal = async function(query, limit, retry) {
 
   try {
     var url = TIDAL_BACKEND + "/search/?s=" + encodeURIComponent(query) + "&limit=" + limit;
-    console.log("[Jeremy - Tidal] API URL:", url);
-
     var res = await withTimeout(fetch(url), TIMEOUT_MS);
     var raw = await res.json();
 
-    // Unwrap backend wrapper: {version, data: tidal_payload}
     var payload = raw.data || raw;
-
     var tidalTracks = [];
     if (payload.tracks) {
       tidalTracks = Array.isArray(payload.tracks) ? payload.tracks : (payload.tracks.items || []);
@@ -112,10 +108,7 @@ var searchTidal = async function(query, limit, retry) {
       tidalTracks = Array.isArray(payload.data.tracks) ? payload.data.tracks : (payload.data.tracks.items || []);
     }
 
-    console.log("[Jeremy - Tidal] Tracks found:", tidalTracks.length);
-
     if (!tidalTracks || tidalTracks.length === 0) {
-      console.log("[Jeremy - Tidal] No results for query:", query);
       return [];
     }
 
@@ -130,9 +123,7 @@ var searchTidal = async function(query, limit, retry) {
     });
 
   } catch (e) {
-    console.error("[Jeremy - Tidal] Search FAILED:", e.message);
-    if (retry < 2) {
-      console.log("[Jeremy - Tidal] Retrying (" + (retry+1) + "/2)...");
+    if (retry < 1) {
       return searchTidal(query, limit, retry + 1);
     }
     return [];
@@ -161,31 +152,20 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   });
 
   tidalTracks.forEach(function(t) {
-    if (t.isrc && seenISRC.has(t.isrc)) {
-      console.log("[Jeremy - MergeSmart] Skipping duplicate (ISRC):", t.title);
-      return;
-    }
-
+    if (t.isrc && seenISRC.has(t.isrc)) return;
     var key = t.isrc || normalizeQ(t.title + "|" + t.artist);
-    if (seenKey.has(key)) {
-      console.log("[Jeremy - MergeSmart] Skipping duplicate:", t.title);
-      return;
-    }
-
-    console.log("[Jeremy - MergeSmart] Adding Tidal track:", t.title);
+    if (seenKey.has(key)) return;
     seenKey.add(key);
     if (t.isrc) seenISRC.add(t.isrc);
     final.push(t);
   });
 
-  console.log("[Jeremy - MergeSmart] Final merged count:", final.length);
   return final.slice(0, limit);
 }
 
 var getAlbum = async function(albumId){ return null; };
 
 var preloadQueue = [];
-
 var preloadTrack = function(trackId){
   getQobuzStream(trackId).catch(function(){});
   if(preloadQueue.indexOf(trackId) === -1) preloadQueue.unshift(trackId);
@@ -197,34 +177,37 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.1",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.1 - Tidal fixed)",
+  version: "2.2",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.2 - Crash fixed)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
 
     if (query.toLowerCase().includes("molecule mouth")) {
-      console.log("[DIAGNOSTIC] Using only Tidal for: molecule mouth");
-      var tidalOnly = await searchTidal(query, limit);
-      return { tracks: tidalOnly, total: tidalOnly.length };
+      try {
+        var tidalOnly = await searchTidal(query, limit);
+        return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
+      } catch (e) {
+        return { tracks: [], total: 0 };
+      }
     }
 
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);
     if(cached && Date.now()-cached.ts < SEARCH_CACHE_TTL) return { tracks: cached.data, total: cached.data.length };
 
-    var [qobuz, tidal] = await Promise.all([
-      searchQobuz(query, limit),
-      searchTidal(query, limit)
-    ]);
-
-    console.log("[Jeremy] Qobuz results:", qobuz.length);
-    console.log("[Jeremy] Tidal results:", tidal.length);
-
-    var merged = mergeSmart(qobuz, tidal, limit);
-    _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
-    return { tracks: merged, total: merged.length };
+    try {
+      var [qobuz, tidal] = await Promise.all([
+        searchQobuz(query, limit),
+        searchTidal(query, limit)
+      ]);
+      var merged = mergeSmart(qobuz || [], tidal || [], limit);
+      _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
+      return { tracks: merged, total: merged.length };
+    } catch (e) {
+      return { tracks: [], total: 0 };
+    }
   },
 
   getTrackStreamUrl: async function(trackId) {

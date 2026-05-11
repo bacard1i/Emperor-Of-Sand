@@ -3,7 +3,7 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Optimized Tidal endpoints - best ones first for speed
+// Best Tidal endpoints first (from binimum + community knowledge)
 var TIDAL_ENDPOINTS = [
   "https://tidal.squid.wtf",
   "https://tidal-api.binimum.org",
@@ -31,10 +31,13 @@ var TIDAL_ENDPOINTS = [
 ];
 
 var TIMEOUT_MS = 6000;
+
+// Smart caching (binimum style)
 var _streamCache = new Map();
-var STREAM_CACHE_TTL = 12 * 60 * 1000;
+var STREAM_CACHE_TTL = 15 * 60 * 1000;
 var _searchCache = new Map();
-var SEARCH_CACHE_TTL = 8 * 60 * 1000;
+var SEARCH_CACHE_TTL = 10 * 60 * 1000;
+var _pendingRequests = new Map(); // Request deduplication
 
 function cleanText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 function normalizeQ(s) {
@@ -71,6 +74,7 @@ async function qobuzApi(endpoint, params){
   var res = await fetch(url); if(!res.ok) throw new Error("Qobuz HTTP "+res.status); return res.json();
 }
 
+// Smart search caching (binimum style)
 var searchQobuz = async function(query, limit){
   if(!limit) limit=25;
   var cacheKey = "q_"+query+"_"+limit;
@@ -97,25 +101,39 @@ var searchQobuz = async function(query, limit){
   }catch(e){ return []; }
 };
 
-var getQobuzStream = async function(trackId, retry){
+// Smart stream caching with quality awareness (binimum style)
+var getQobuzStream = async function(trackId, quality, retry){
   if(!retry) retry=0;
-  var cacheKey = "qs_"+trackId;
+  if(!quality) quality = "27";
+  var cacheKey = "qs_"+trackId+"_"+quality;
   var cached = _streamCache.get(cacheKey);
   if(cached && Date.now()-cached.ts < STREAM_CACHE_TTL) return cached.result;
   try{
     var ts = Math.floor(Date.now()/1000);
-    var sig = md5("trackgetFileUrlformat_id27intentstreamtrack_id"+trackId+ts+SECRET);
+    var sig = md5("trackgetFileUrlformat_id"+quality+"intentstreamtrack_id"+trackId+ts+SECRET);
     var url = BASE + "/track/getFileUrl?app_id="+APP_ID+"&user_auth_token="+USER_TOKEN+
-              "&track_id="+trackId+"&format_id=27&intent=stream&request_ts="+ts+"&request_sig="+sig;
+              "&track_id="+trackId+"&format_id="+quality+"&intent=stream&request_ts="+ts+"&request_sig="+sig;
     var r = await fetch(url); if(!r.ok) throw new Error("HTTP "+r.status);
     var data = await r.json();
     var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz (Q)", source: "Qobuz" } };
     _streamCache.set(cacheKey, {result:result, ts:Date.now()});
     return result;
-  }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
+  }catch(e){ if(retry<2) return getQobuzStream(trackId, quality, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-// Fast parallel racing - more endpoints, shorter timeout
+// Request deduplication (binimum style)
+async function dedupedFetch(key, fetchFn) {
+  if (_pendingRequests.has(key)) {
+    return _pendingRequests.get(key);
+  }
+  const promise = fetchFn().finally(() => {
+    _pendingRequests.delete(key);
+  });
+  _pendingRequests.set(key, promise);
+  return promise;
+}
+
+// Fast parallel racing (binimum inspired)
 async function fetchWithRace(endpoint) {
   const tried = new Set();
   while (tried.size < TIDAL_ENDPOINTS.length) {
@@ -127,14 +145,15 @@ async function fetchWithRace(endpoint) {
     try {
       const result = await Promise.any(
         batch.map(baseUrl =>
-          fetch(baseUrl + endpoint, {
-            headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' },
-            signal: AbortSignal.timeout(TIMEOUT_MS)
-          })
-            .then(response => {
+          dedupedFetch(baseUrl + endpoint, () =>
+            fetch(baseUrl + endpoint, {
+              headers: { 'Accept': 'application/json', 'User-Agent': '8spine/1.0' },
+              signal: AbortSignal.timeout(TIMEOUT_MS)
+            }).then(response => {
               if (!response.ok) throw new Error('HTTP ' + response.status);
               return response.json();
             })
+          )
         )
       );
       return result;
@@ -188,11 +207,11 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-// Fast + reliable Tidal playback - parallel + smart fallback
+// Smart Tidal playback with quality awareness (binimum style)
 var getTidalStream = async function(trackId) {
   const qualities = ["LOSSLESS", "HIGH", "LOW"];
 
-  // First attempt: parallel race across best endpoints
+  // Try normal qualities first (faster)
   for (const quality of qualities) {
     try {
       const data = await fetchWithRace('/track/?id=' + trackId + '&quality=' + quality);
@@ -208,7 +227,7 @@ var getTidalStream = async function(trackId) {
     }
   }
 
-  // Second attempt: try HI_RES if normal qualities failed
+  // Fallback to HI_RES only if normal qualities failed
   try {
     const data = await fetchWithRace('/track/?id=' + trackId + '&quality=HI_RES_LOSSLESS');
     if (data.data && data.data.manifest) {

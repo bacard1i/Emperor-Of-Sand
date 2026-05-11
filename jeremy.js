@@ -132,7 +132,8 @@ var searchTidal = async function(query, limit, retry) {
 var getTidalStream = async function(trackId){
   try{
     var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=LOSSLESS"), TIMEOUT_MS);
-    return await res.json();
+    var data = await res.json();
+    return { streamUrl: data.streamUrl || data.url || null };
   }catch(e){ return { streamUrl: null }; }
 };
 
@@ -176,8 +177,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.6.2",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.2 - Labels in Quality field)",
+  version: "2.6.3",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.3 - Improved Tidal playback)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

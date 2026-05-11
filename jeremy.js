@@ -4,11 +4,11 @@ var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 var TIDAL_BACKEND = "https://sultans-curse.onrender.com";
 
-var TIMEOUT_MS = 20000;
+var TIMEOUT_MS = 8000;
 var _streamCache = new Map();
-var STREAM_CACHE_TTL = 5 * 60 * 1000;
+var STREAM_CACHE_TTL = 12 * 60 * 1000;
 var _searchCache = new Map();
-var SEARCH_CACHE_TTL = 3 * 60 * 1000;
+var SEARCH_CACHE_TTL = 8 * 60 * 1000;
 
 function cleanText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 function normalizeQ(s) {
@@ -185,8 +185,8 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.6.4",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6.4 - Better Tidal playback)",
+  version: "2.7.0",
+  description: "Qobuz Hi-Res + Tidal Fallback • Instant Best Quality Start (v2.7.0 - Full Acceleration)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){

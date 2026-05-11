@@ -106,7 +106,7 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-// ==================== v2.7.4 - SIMPLIFIED RELIABLE STREAM HANDLER ====================
+// ==================== v2.7.4 - RELIABLE STREAM HANDLER (with better error handling) ====================
 
 function isPreviewUrl(url) {
   if (!url) return true;
@@ -117,14 +117,16 @@ function isPreviewUrl(url) {
 async function getBestStream(track, preferredQuality) {
   if (!preferredQuality) preferredQuality = "LOSSLESS";
 
-  // QOBUZ first (more reliable right now)
+  var errors = [];
+
+  // QOBUZ first
   if (track.qobuzId) {
     try {
       var qobuzResult = await getQobuzStream(track.qobuzId, 0);
       if (qobuzResult && qobuzResult.streamUrl && !isPreviewUrl(qobuzResult.streamUrl)) {
         return qobuzResult;
       }
-    } catch (e) {}
+    } catch (e) { errors.push("Qobuz: " + e.message); }
   }
 
   // TIDAL fallback
@@ -134,10 +136,11 @@ async function getBestStream(track, preferredQuality) {
       if (tidalResult && tidalResult.streamUrl && !isPreviewUrl(tidalResult.streamUrl)) {
         return tidalResult;
       }
-    } catch (e) {}
+    } catch (e) { errors.push("Tidal: " + e.message); }
   }
 
-  return { streamUrl: null, error: true };
+  console.log("[Jeremy] Stream failed for track:", track.title || track.id, errors);
+  return { streamUrl: null, error: true, debug: errors };
 }
 
 // Cerberus-style Tidal multi-endpoint racing

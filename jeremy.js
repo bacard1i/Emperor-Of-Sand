@@ -61,9 +61,9 @@ var searchQobuz = async function(query, limit){
         artist: t.performer ? t.performer.name : (t.artist ? t.artist.name : "Unknown"),
         album: t.album ? t.album.title : "", albumId: t.album ? String(t.album.id) : null,
         duration: t.duration || 0,
-        audioQuality: bit + "-bit / " + sr + " kHz",
+        audioQuality: bit + "-bit / " + sr + " kHz (Qobuz)",
         cover: t.album && t.album.image ? t.album.image.large : "",
-        isrc: t.isrc || null, source: "Qobuz", qobuzId: String(t.id)
+        isrc: t.isrc || null, source: "Qobuz", qobuzId: String(t.id), provider: "Qobuz"
       };
     });
     _searchCache.set(cacheKey, {data:result, ts:Date.now()});
@@ -83,7 +83,7 @@ var getQobuzStream = async function(trackId, retry){
               "&track_id="+trackId+"&format_id=27&intent=stream&request_ts="+ts+"&request_sig="+sig;
     var r = await fetch(url); if(!r.ok) throw new Error("HTTP "+r.status);
     var data = await r.json();
-    var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz", source: "Qobuz" } };
+    var result = { streamUrl: data.url, track: { audioQuality: (data.bit_depth||24)+"-bit / "+(data.sample_rate||data.sampling_rate||0)+" kHz (Qobuz)", source: "Qobuz" } };
     _streamCache.set(cacheKey, {result:result, ts:Date.now()});
     return result;
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
@@ -118,7 +118,8 @@ var searchTidal = async function(query, limit, retry) {
         id: "tidal:" + tid,
         source: "Tidal",
         tidalId: tid,
-        audioQuality: t.audioQuality || t.audio_quality || t.quality || "LOSSLESS"
+        audioQuality: (t.audioQuality || t.audio_quality || t.quality || "LOSSLESS") + " (Tidal)",
+        provider: "Tidal"
       });
     });
 
@@ -128,11 +129,25 @@ var searchTidal = async function(query, limit, retry) {
   }
 };
 
-var getTidalStream = async function(trackId){
-  try{
-    var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=LOSSLESS"), TIMEOUT_MS);
-    return await res.json();
-  }catch(e){ return { streamUrl: null }; }
+var getTidalStream = async function(trackId, retry){
+  if (!retry) retry = 0;
+  var qualities = ["LOSSLESS", "HIGH", "LOW"];
+  var quality = qualities[retry] || "LOSSLESS";
+
+  try {
+    var res = await withTimeout(fetch(TIDAL_BACKEND + "/track/?id=" + trackId + "&quality=" + quality), TIMEOUT_MS);
+    var data = await res.json();
+
+    if (data.streamUrl || data.url) {
+      return data;
+    } else {
+      if (retry < 2) return getTidalStream(trackId, retry + 1);
+      return { streamUrl: null, error: "No stream available" };
+    }
+  } catch (e) {
+    if (retry < 2) return getTidalStream(trackId, retry + 1);
+    return { streamUrl: null, error: e.message };
+  }
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
@@ -175,21 +190,12 @@ return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.6",
-  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.6)",
+  version: "2.7",
+  description: "Qobuz Hi-Res + Tidal Fallback • Best Quality Available (v2.7 - Better Tidal playback)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
     if(!limit) limit=25;
-
-    if (query.toLowerCase().includes("molecule mouth")) {
-      try {
-        var tidalOnly = await searchTidal(query, limit);
-        return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
-      } catch (e) {
-        return { tracks: [], total: 0 };
-      }
-    }
 
     var cacheKey = "search_"+query+"_"+limit;
     var cached = _searchCache.get(cacheKey);

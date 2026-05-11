@@ -3,18 +3,17 @@ var USER_TOKEN = "XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2z
 var SECRET = "e79f8b9be485692b0e5f9dd895826368";
 var BASE = "https://www.qobuz.com/api.json/0.2";
 
-// Phase 1: Multiple Tidal backends for reliability
+// Clean minimal version - only core search + playback
 var TIDAL_BACKENDS = [
   "https://sultans-curse.onrender.com",
-  "https://hifi-api.onrender.com",
-  "https://tidal.hifi-api.com"
+  "https://hifi-api.onrender.com"
 ];
 
-var TIMEOUT_MS = 8000;
+var TIMEOUT_MS = 10000;
 var _streamCache = new Map();
-var STREAM_CACHE_TTL = 12 * 60 * 1000;
+var STREAM_CACHE_TTL = 10 * 60 * 1000;
 var _searchCache = new Map();
-var SEARCH_CACHE_TTL = 8 * 60 * 1000;
+var SEARCH_CACHE_TTL = 6 * 60 * 1000;
 
 function cleanText(s) { return String(s || '').replace(/\s+/g, ' ').trim(); }
 function normalizeQ(s) {
@@ -95,9 +94,8 @@ var getQobuzStream = async function(trackId, retry){
   }catch(e){ if(retry<2) return getQobuzStream(trackId, retry+1); throw new Error("Qobuz stream failed"); }
 };
 
-var searchTidal = async function(query, limit, retry) {
+var searchTidal = async function(query, limit) {
   if (!limit) limit = 25;
-  if (retry === undefined) retry = 0;
 
   for (var i = 0; i < TIDAL_BACKENDS.length; i++) {
     var backend = TIDAL_BACKENDS[i];
@@ -135,8 +133,7 @@ var searchTidal = async function(query, limit, retry) {
   return [];
 };
 
-var getTidalStream = async function(trackId, retryCount) {
-  if (!retryCount) retryCount = 0;
+var getTidalStream = async function(trackId) {
   const qualities = ["LOSSLESS", "HIGH", "LOW"];
 
   for (var b = 0; b < TIDAL_BACKENDS.length; b++) {
@@ -164,14 +161,7 @@ var getTidalStream = async function(trackId, retryCount) {
       }
     }
   }
-
-  if (retryCount < 2) {
-    var delay = Math.pow(2, retryCount) * 1000;
-    await new Promise(r => setTimeout(r, delay));
-    return getTidalStream(trackId, retryCount + 1);
-  }
-
-  return { streamUrl: null, error: true, message: "All Tidal backends failed" };
+  return { streamUrl: null };
 };
 
 function mergeSmart(qobuzTracks, tidalTracks, limit) {
@@ -200,64 +190,12 @@ function mergeSmart(qobuzTracks, tidalTracks, limit) {
   return final.slice(0, limit);
 }
 
-// v2.8.2: Simple array return (stable)
-var getAlbumTracks = async function(albumId) {
-  try {
-    var data = await withTimeout(qobuzApi("/album/get", {album_id: albumId}), TIMEOUT_MS);
-    if (!data || !data.tracks || !data.tracks.items) return [];
-
-    return data.tracks.items.map(function(t) {
-      var sr = t.maximum_sampling_rate || t.sampling_rate || 0;
-      var bit = t.maximum_bit_depth || t.bit_depth || 16;
-      return {
-        id: String(t.id),
-        title: cleanText(getFullTitle(t)),
-        duration: t.duration || 0,
-        audioQuality: bit + "-bit / " + sr + " kHz (Q)",
-        source: "Qobuz"
-      };
-    });
-  } catch (e) {
-    return [];
-  }
-};
-
-var searchArtists = async function(query, limit) {
-  if (!limit) limit = 10;
-  try {
-    var results = await searchTidal(query + " artist", limit);
-    return results.map(function(r) {
-      return {
-        id: r.tidalId || r.id,
-        name: r.artist || r.title || "Unknown Artist",
-        source: "Tidal"
-      };
-    });
-  } catch (e) {
-    return [];
-  }
-};
-
-var getArtistAlbums = async function(artistId) {
-  return [];
-};
-
-var getAlbum = async function(albumId){ return null; };
-
-var preloadQueue = [];
-var preloadTrack = function(trackId){
-  getQobuzStream(trackId).catch(function(){});
-  if(preloadQueue.indexOf(trackId) === -1) preloadQueue.unshift(trackId);
-  if(preloadQueue.length > 25) preloadQueue.length = 25;
-  return Promise.resolve({ status: "preloaded" });
-};
-
 return {
   id: "jeremy",
   name: "Jeremy",
   author: "bacardii",
-  version: "2.8.2",
-  description: "Qobuz Hi-Res + Tidal Fallback • Stable Navigation + Per-Track Quality (v2.8.2)",
+  version: "2.9.0",
+  description: "Qobuz Hi-Res + Tidal Fallback • Clean Minimal Stable (v2.9.0)",
   labels: ["QOBUZ", "TIDAL", "HI-RES", "SMART"],
 
   searchTracks: async function(query, limit){
@@ -268,7 +206,7 @@ return {
         var tidalOnly = await searchTidal(query, limit);
         return { tracks: tidalOnly || [], total: (tidalOnly || []).length };
       } catch (e) {
-        return { tracks: [], total: 0, error: true };
+        return { tracks: [], total: 0 };
       }
     }
 
@@ -285,7 +223,7 @@ return {
       _searchCache.set(cacheKey, { data: merged, ts: Date.now() });
       return { tracks: merged, total: merged.length };
     } catch (e) {
-      return { tracks: [], total: 0, error: true, message: e.message };
+      return { tracks: [], total: 0 };
     }
   },
 
@@ -298,10 +236,6 @@ return {
     }
   },
 
-  searchArtists: searchArtists,
-  getArtistAlbums: getArtistAlbums,
-  getAlbumTracks: getAlbumTracks,
-
-  getAlbum: getAlbum,
-  preloadTrack: preloadTrack
+  getAlbum: async function(albumId){ return null; },
+  preloadTrack: async function(trackId){ return { status: "ok" }; }
 };
